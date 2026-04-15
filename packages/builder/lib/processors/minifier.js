@@ -26,7 +26,7 @@ function getPool(taskUtil) {
 		log.verbose(`Creating workerpool with up to ${maxWorkers} workers (available CPU cores: ${osCpus})`);
 		const workerPath = fileURLToPath(new URL("./minifierWorker.js", import.meta.url));
 		pool = workerpool.pool(workerPath, {
-			workerType: "auto",
+			workerType: process.versions.bun ? "thread" : "auto",
 			maxWorkers
 		});
 		taskUtil.registerCleanupTask((force) => {
@@ -35,6 +35,12 @@ function getPool(taskUtil) {
 
 				if (!pool) {
 					return;
+				}
+
+				if (process.versions.bun) {
+					const poolToBeTerminated = pool;
+					pool = null;
+					return poolToBeTerminated.terminate(true);
 				}
 
 				// There are many stats that could be used, but these ones seem the most

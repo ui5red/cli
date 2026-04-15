@@ -32,6 +32,12 @@ function getPool(taskUtil) {
 					return;
 				}
 
+				if (process.versions.bun) {
+					const poolToBeTerminated = pool;
+					pool = null;
+					return poolToBeTerminated.terminate(true);
+				}
+
 				// There are many stats that could be used, but these ones seem the most
 				// convenient. When all the (available) workers are idle, then it's safe to terminate.
 				let {idleWorkers, totalWorkers} = pool.stats();
