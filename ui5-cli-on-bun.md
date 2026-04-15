@@ -1,30 +1,16 @@
 # UI5 CLI on Bun
 
-This fork contains the UI5 CLI-side changes needed to run the CLI against a sibling Bun fork and to keep the main build and server paths working there.
+This fork contains the UI5 CLI-side changes needed to run the CLI against the sibling Bun fork and to keep the main build and server paths working there.
 
-Sibling fork references:
+Sibling repo references:
 
-- Bun fork: https://github.com/ui5red/bun
-- Local sibling checkout used during development: `../bun`
+- Bun fork: <https://github.com/ui5red/bun>
+- Validation app: <https://github.com/ui5red/ui5-cli-on-bun>
+- Local sibling checkouts used during development: `../bun` and `../ui5-cli-on-bun`
 
 ## What changed in this UI5 CLI fork
 
-### 1. Local Bun launcher for the sibling fork
-
-Files:
-
-- `package.json`
-- `scripts/run-local-bun.mjs`
-
-This adds a simple repo-local way to execute the CLI with the sibling Bun fork instead of system Node:
-
-- `npm run bun:build:fork` builds the sibling Bun checkout
-- `npm run bun:cli` launches arbitrary entry points through the local Bun binary
-- `npm run bun:ui5` launches `packages/cli/bin/ui5.cjs` through that same binary
-
-The launcher resolves the Bun executable from the sibling repo (or from `BUN_FORK_BINARY`) and forwards cwd, args, stdio, and environment unchanged.
-
-### 2. Builder JSDoc execution under Bun
+### 1. Builder JSDoc execution under Bun
 
 Files:
 
@@ -42,7 +28,7 @@ This fork adds a Bun-specific runner that:
 
 The builder test coverage was updated so the invocation contract stays explicit.
 
-### 3. Server-side HTTP/2 support on Bun
+### 2. Server-side HTTP/2 support on Bun
 
 Files:
 
@@ -71,7 +57,11 @@ The sibling Bun fork provides the runtime support that made the final HTTP/2 pat
 
 See the sibling repo documentation for the runtime-side details:
 
-- https://github.com/ui5red/bun/blob/main/ui5-cli-on-bun.md
+- <https://github.com/ui5red/bun/blob/main/ui5-cli-on-bun.md>
+
+The standalone validation app provides the user-facing setup and test flow:
+
+- <https://github.com/ui5red/ui5-cli-on-bun>
 
 ## End-to-end validation performed
 
@@ -82,21 +72,22 @@ Validation covered both direct CLI flows and extension hooks:
 - a custom middleware validation app successfully added `x-bun-validation-middleware: active` over HTTP/2
 - a custom task validation app successfully emitted `custom-task-marker.txt` during `ui5 build`
 
-Those validation apps were used locally during development; the permanent product changes are the launcher, builder, and server integration listed above.
+Those validation steps now live in the standalone validation app rather than in this fork.
 
-## Practical usage
+## Recommended test flow
 
-From this repo:
+Use the standalone validation app as the entry point for setup and testing:
 
-1. Build the sibling Bun fork:
-   `npm run bun:build:fork`
-2. Run the UI5 CLI on Bun:
-   `npm run bun:ui5 -- <command>`
+```sh
+git clone https://github.com/ui5red/ui5-cli-on-bun.git
+cd ui5-cli-on-bun
+npm install
+npm run setup:forks
+npm run bun:build:fork
+npm run smoke
+```
 
-Examples:
-
-- `npm run bun:ui5 -- serve --h2 --key <key> --cert <cert>`
-- `npm run bun:ui5 -- build --all`
+That flow clones the sibling Bun and UI5 CLI forks automatically, prepares their dependencies, builds the custom Bun binary, and runs the end-to-end validation from one repository.
 
 ## Current state
 
