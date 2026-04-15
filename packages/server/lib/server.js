@@ -4,6 +4,7 @@ import MiddlewareManager from "./middleware/MiddlewareManager.js";
 import {createReaderCollection} from "@ui5/fs/resourceFactory";
 import ReaderCollectionPrioritized from "@ui5/fs/ReaderCollectionPrioritized";
 import {getLogger} from "@ui5/logger";
+import {getUnsupportedHttp2Message} from "./http2Support.js";
 
 const log = getLogger("server");
 /**
@@ -88,6 +89,23 @@ function _listen(app, port, changePortIfInUse, acceptRemoteConnections) {
  * @private
  */
 async function _addSsl({app, key, cert}) {
+	if (process.versions.bun) {
+		const {createSecureServer, Http2ServerRequest, Http2ServerResponse} = await import("node:http2");
+
+		const expressRequestPrototype = Object.getPrototypeOf(app.request);
+		const expressResponsePrototype = Object.getPrototypeOf(app.response);
+		const requestPrototype = Object.create(Http2ServerRequest.prototype);
+		const responsePrototype = Object.create(Http2ServerResponse.prototype);
+
+		Object.defineProperties(requestPrototype, Object.getOwnPropertyDescriptors(expressRequestPrototype));
+		Object.defineProperties(responsePrototype, Object.getOwnPropertyDescriptors(expressResponsePrototype));
+
+		app.request = Object.create(requestPrototype, Object.getOwnPropertyDescriptors(app.request));
+		app.response = Object.create(responsePrototype, Object.getOwnPropertyDescriptors(app.response));
+
+		return createSecureServer({allowHTTP1: true, cert, key}, app);
+	}
+
 	// Using spdy as http2 server as the native http2 implementation
 	// from Node v8.4.0 doesn't seem to work with express
 	const {default: spdy} = await import("spdy");
@@ -181,9 +199,9 @@ export async function serve(graph, {
 	await middlewareManager.applyMiddleware(app);
 
 	if (h2) {
-		const nodeVersion = parseInt(process.versions.node.split(".")[0], 10);
-		if (nodeVersion >= 24) {
-			log.error("ERROR: With Node v24, usage of HTTP/2 is no longer supported. Please check https://github.com/UI5/cli/issues/327 for updates.");
+		const unsupportedHttp2Message = getUnsupportedHttp2Message();
+		if (unsupportedHttp2Message) {
+			log.error(unsupportedHttp2Message);
 			process.exit(1);
 		}
 

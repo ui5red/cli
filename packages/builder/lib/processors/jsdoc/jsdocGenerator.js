@@ -156,17 +156,38 @@ async function writeJsdocConfig(targetDirPath, config) {
  * @returns {Promise<undefined>}
  */
 async function buildJsdoc({sourcePath, configPath}) {
-	const args = [
-		fileURLToPath(import.meta.resolve("jsdoc/jsdoc.js")),
-		"-c",
-		configPath,
-		"--verbose",
-		sourcePath
-	];
-	const exitCode = await new Promise((resolve /* , reject */) => {
-		const child = spawn("node", args, {
-			stdio: ["ignore", "ignore", "inherit"]
+	const runtimeExecutable = process.execPath;
+	if (!runtimeExecutable) {
+		throw new Error("Unable to determine current JavaScript runtime executable");
+	}
+	const jsdocCliPath = fileURLToPath(import.meta.resolve("jsdoc/jsdoc.js"));
+	const env = {...process.env};
+	let args;
+
+	if (process.versions.bun) {
+		args = [
+			fileURLToPath(new URL("./bunJsdocRunner.cjs", import.meta.url)),
+			path.dirname(jsdocCliPath),
+			"-c",
+			configPath,
+			"--verbose",
+			sourcePath
+		];
+	} else {
+		args = [
+			jsdocCliPath,
+			"-c",
+			configPath,
+			"--verbose",
+			sourcePath
+		];
+	}
+	const exitCode = await new Promise((resolve, reject) => {
+		const child = spawn(runtimeExecutable, args, {
+			stdio: ["ignore", "ignore", "inherit"],
+			env
 		});
+		child.on("error", reject);
 		child.on("close", resolve);
 	});
 

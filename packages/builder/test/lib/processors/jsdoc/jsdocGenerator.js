@@ -80,7 +80,9 @@ test.serial("buildJsdoc", async (t) => {
 	let exitCode = 0;
 	const cpStub = sinon.stub().returns({
 		on: (event, callback) => {
-			callback(exitCode);
+			if (event === "close") {
+				callback(exitCode);
+			}
 		}
 	});
 
@@ -97,7 +99,7 @@ test.serial("buildJsdoc", async (t) => {
 	t.is(cpStub.callCount, 1, "Spawn got called");
 
 	const firstCallArgs = cpStub.getCall(0).args;
-	t.is(firstCallArgs[0], "node", "Spawn got called with correct process argument");
+	t.is(firstCallArgs[0], process.execPath, "Spawn got called with correct process argument");
 	t.deepEqual(firstCallArgs[1], [
 		fileURLToPath(import.meta.resolve("jsdoc/jsdoc.js")),
 		"-c",

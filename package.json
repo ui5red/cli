@@ -23,6 +23,9 @@
 		"npm": ">= 8"
 	},
 	"scripts": {
+		"bun:build:fork": "cd ../bun && bun run build:debug",
+		"bun:cli": "node ./scripts/run-local-bun.mjs",
+		"bun:ui5": "node ./scripts/run-local-bun.mjs ./packages/cli/bin/ui5.cjs",
 		"test": "npm run lint && npm run check-licenses && npm run knip && npm run coverage && npm run schema-generate && npm run generate-cli-doc",
 		"lint": "eslint ./ && npm run lint --workspaces --if-present",
 		"lint:commit": "commitlint",
