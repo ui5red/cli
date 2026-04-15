@@ -44,6 +44,44 @@ UI5 CLI consists of multiple packages managed within this monorepo:
 **Usage Overview** *(arrows indicate dependencies)*
 ![Module Overview](./internal/documentation/docs/images/Module_overview.png)
 
+## Bun Comparison Workflow
+
+This fork is evaluated together with sibling `bun` and `ui5-cli-on-bun` checkouts.
+
+Run the comparison from the standalone harness repository:
+
+```sh
+cd ../ui5-cli-on-bun
+npm run compare:fixtures
+```
+
+Profile a specific fixture under both runtimes with:
+
+```sh
+npm run profile:fixture:node -- --only builder/application.e --repeat 3
+npm run profile:fixture:bun -- --only builder/application.e --repeat 3
+```
+
+The harness resolves sibling repositories by default:
+
+- `../bun`
+- `../cli`
+
+Override those locations with `BUN_REPO` and `UI5_CLI_REPO` if your checkouts live elsewhere.
+
+Latest local runtime comparison (`npm run compare:fixtures`, 2026-04-15):
+
+| Metric | Node | Bun | Delta |
+| --- | ---: | ---: | ---: |
+| Overall wall time | 30.42 s | 30.25 s | Bun faster by 0.17 s |
+| Build total | 28.64 s | 28.55 s | Bun faster by 0.09 s |
+| Build prepare | 9.45 s | 9.97 s | Bun slower by 0.52 s |
+| Build `ui5` | 18.74 s | 18.18 s | Bun faster by 0.56 s |
+| Serve | 1.07 s | 1.06 s | Bun faster by 0.01 s |
+| Parity | 0.62 s | 0.55 s | Bun faster by 0.07 s |
+
+The current fork change disables worker-backed minify and theme builds under Bun, which removed the large workerpool cleanup penalty that previously dominated Bun build time. Repeat the comparison on your own machine before treating these numbers as canonical.
+
 ## Contributing
 
 Please check our [Contribution Guidelines](https://github.com/UI5/cli/blob/main/CONTRIBUTING.md).
@@ -53,4 +91,5 @@ Please check our [Contribution Guidelines](https://github.com/UI5/cli/blob/main/
 Please follow our [Contribution Guidelines](https://github.com/UI5/cli/blob/main/CONTRIBUTING.md#report-an-issue) on how to report an issue. Or chat with us in the [`#tooling`](https://openui5.slack.com/archives/C0A7QFN6B) channel of the [OpenUI5 Community Slack](https://ui5-slack-invite.cfapps.eu10.hana.ondemand.com). For public Q&A, use the [`ui5-tooling` tag on Stack Overflow](https://stackoverflow.com/questions/tagged/ui5-tooling).
 
 ## Kudos
+
 Thanks go out to [Holger Schäfer](https://github.com/hschaefer123) for the amazing [UI5 VitePress](https://github.com/hschaefer123/ui5-vitepress) project, which serves as the foundation for the UI5 CLI documentation.

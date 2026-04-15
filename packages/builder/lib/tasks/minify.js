@@ -36,7 +36,7 @@ export default async function({
 		options: {
 			addSourceMappingUrl: !omitSourceMapResources,
 			readSourceMappingUrl: !!useInputSourceMaps,
-			useWorkers: !!taskUtil,
+			useWorkers: !!taskUtil && !process.versions.bun,
 		}
 	});
 
