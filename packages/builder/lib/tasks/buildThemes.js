@@ -21,6 +21,9 @@ function getPool(taskUtil) {
 		log.verbose(`Creating workerpool with up to ${maxWorkers} workers (available CPU cores: ${osCpus})`);
 		const workerPath = fileURLToPath(new URL("../processors/themeBuilderWorker.js", import.meta.url));
 		pool = workerpool.pool(workerPath, {
+			// Use "thread" (worker_threads) for all runtimes. workerpool's "auto"
+			// mode uses child_process.fork() which does not reliably support the
+			// workerpool protocol on Bun.
 			workerType: "thread",
 			maxWorkers
 		});
@@ -33,6 +36,10 @@ function getPool(taskUtil) {
 				}
 
 				if (process.versions.bun) {
+					// On Bun, workerpool's graceful shutdown can hang because Bun's
+					// worker_threads does not always surface correct idle/total stats.
+					// Force-terminate to avoid blocking. Safe because all theme build
+					// results have been collected before cleanup runs.
 					const poolToBeTerminated = pool;
 					pool = null;
 					return poolToBeTerminated.terminate(true);
@@ -198,7 +205,7 @@ export default async function({
 	}
 
 	let processedResources;
-	const useWorkers = !!taskUtil && !process.versions.bun;
+	const useWorkers = !!taskUtil;
 	if (useWorkers) {
 		const threadMessageHandler = new FsMainThreadInterface(fsInterface(combo));
 

@@ -26,6 +26,10 @@ function getPool(taskUtil) {
 		log.verbose(`Creating workerpool with up to ${maxWorkers} workers (available CPU cores: ${osCpus})`);
 		const workerPath = fileURLToPath(new URL("./minifierWorker.js", import.meta.url));
 		pool = workerpool.pool(workerPath, {
+			// Bun requires "thread" workerType because workerpool's "auto" mode uses
+			// child_process.fork() which does not reliably support the workerpool
+			// protocol on Bun. The "thread" mode uses worker_threads which Bun supports.
+			// See also the force-termination logic below.
 			workerType: process.versions.bun ? "thread" : "auto",
 			maxWorkers
 		});
@@ -38,6 +42,12 @@ function getPool(taskUtil) {
 				}
 
 				if (process.versions.bun) {
+					// On Bun, workerpool's graceful shutdown (waiting for idle workers)
+					// can hang because Bun's worker_threads implementation does not
+					// always surface the correct idle/total worker stats.
+					// Force-terminate to avoid blocking the build process. This is safe
+					// here because the minifier task has already collected all results
+					// by the time cleanup runs.
 					const poolToBeTerminated = pool;
 					pool = null;
 					return poolToBeTerminated.terminate(true);

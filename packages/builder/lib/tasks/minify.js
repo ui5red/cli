@@ -36,6 +36,12 @@ export default async function({
 		options: {
 			addSourceMappingUrl: !omitSourceMapResources,
 			readSourceMappingUrl: !!useInputSourceMaps,
+			// Workers are disabled on Bun because workerpool's graceful termination
+			// can hang due to Bun's worker_threads not always surfacing accurate
+			// idle/total worker stats. The minifier pool (in minifier.js) handles
+			// Bun-specific workerType and force-termination when workers are enabled,
+			// but the build task conservatively disables them to avoid potential hangs
+			// during task orchestration cleanup.
 			useWorkers: !!taskUtil && !process.versions.bun,
 		}
 	});
