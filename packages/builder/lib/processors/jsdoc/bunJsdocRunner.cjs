@@ -1,3 +1,19 @@
+/**
+ * Bun-specific JSDoc runner.
+ *
+ * JSDoc's internal modules use require() calls with paths relative to JSDoc's
+ * own installation root (e.g., require("jsdoc/lib/jsdoc/env")). Node.js resolves
+ * these through its standard CJS module resolution algorithm, which searches
+ * node_modules directories up the tree. Bun's CJS resolver handles these paths
+ * differently and fails to locate JSDoc's internal modules.
+ *
+ * This runner monkey-patches Module._resolveFilename to intercept require()
+ * calls starting with "jsdoc/" and resolve them against the known JSDoc
+ * installation directory (passed as process.argv[2]). This makes JSDoc's
+ * internal require() calls work identically under both Node.js and Bun.
+ *
+ * See jsdocGenerator.js for the call site that spawns this runner.
+ */
 const path = require("node:path");
 const Module = require("node:module");
 
