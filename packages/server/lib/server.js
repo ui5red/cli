@@ -5,7 +5,6 @@ import {createReaderCollection} from "@ui5/fs/resourceFactory";
 import ReaderCollectionPrioritized from "@ui5/fs/ReaderCollectionPrioritized";
 import {getLogger} from "@ui5/logger";
 import {getUnsupportedHttp2Message} from "./http2Support.js";
-import createBunNativeApp from "./bun/BunNativeApp.js";
 
 const log = getLogger("server");
 
@@ -203,7 +202,7 @@ export async function serve(graph, {
 		}
 	});
 
-	let app = process.versions.bun && !h2 ? createBunNativeApp() : express();
+	let app = express();
 	_addRuntimeHeader(app);
 	await middlewareManager.applyMiddleware(app);
 
