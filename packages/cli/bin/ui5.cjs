@@ -5,6 +5,10 @@
 
 const path = require("path");
 
+function isBunRepoCheckoutInvocation() {
+	return process.versions.bun && !__dirname.includes(`${path.sep}node_modules${path.sep}`);
+}
+
 const ui5 = {
 
 	getPackageJson() {
@@ -62,10 +66,11 @@ const ui5 = {
 	},
 
 	async invokeLocalInstallation(pkg) {
-		if (process.env.UI5_CLI_NO_LOCAL) {
+		if (process.env.UI5_CLI_NO_LOCAL || isBunRepoCheckoutInvocation()) {
 			return false;
 		}
-		// Prefer a local installation of @ui5/cli.
+		// Prefer a local installation of @ui5/cli unless a checkout is executed directly
+		// with Bun. In that case, stay on the explicitly invoked checkout.
 		// This will invoke the local CLI, so no further action required
 		const {default: importLocal} = await import("import-local");
 		let ui5Local = importLocal(path.join(__dirname, "ui5.cjs"));

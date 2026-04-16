@@ -218,6 +218,29 @@ test.serial("invokeLocalInstallation: Doesn't invoke local installation when UI5
 	t.is(importLocalStub.callCount, 0, "import-local should not be called");
 });
 
+test.serial("invokeLocalInstallation: Doesn't invoke local installation for Bun repo checkout", async (t) => {
+	const {processStderrWriteStub} = t.context;
+
+	Object.defineProperty(process.versions, "bun", {
+		value: "1.0.0",
+		configurable: true
+	});
+
+	importLocalStub.returns({});
+
+	const {invokeLocalInstallation} = require("../../bin/ui5.cjs");
+
+	const returnValue = await invokeLocalInstallation({name: "ui5-cli-test"});
+
+	delete process.versions.bun;
+
+	t.false(returnValue);
+
+	t.is(processStderrWriteStub.callCount, 0, "No info should be written when staying on the repo checkout");
+
+	t.is(importLocalStub.callCount, 0, "import-local should not be called for Bun repo checkout invocations");
+});
+
 test.serial("invokeLocalInstallation: Doesn't invoke local installation when it is not found", async (t) => {
 	const {processStderrWriteStub} = t.context;
 

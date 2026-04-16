@@ -8,6 +8,13 @@ import {getUnsupportedHttp2Message} from "./http2Support.js";
 import createBunNativeApp from "./bun/BunNativeApp.js";
 
 const log = getLogger("server");
+
+function _addRuntimeHeader(app, runtime = process.versions.bun ? "bun" : "node") {
+	app.use(function runtimeHeader(req, res, next) {
+		res.setHeader("X-UI5-Runtime", runtime);
+		next();
+	});
+}
 /**
  * @public
  * @module @ui5/server
@@ -197,6 +204,7 @@ export async function serve(graph, {
 	});
 
 	let app = process.versions.bun && !h2 ? createBunNativeApp() : express();
+	_addRuntimeHeader(app);
 	await middlewareManager.applyMiddleware(app);
 
 	if (h2) {

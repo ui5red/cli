@@ -40,6 +40,14 @@ test("Get resource from application.a (/index.html)", async (t) => {
 	t.regex(res.text, /<title>Application A<\/title>/, "Correct response");
 });
 
+test("Get runtime header from server", async (t) => {
+	const res = await request.get("/index.html");
+	if (res.error) {
+		throw new Error(res.error);
+	}
+	t.is(res.headers["x-ui5-runtime"], "node", "Correct runtime header");
+});
+
 
 test("Get resource from application.a with not replaced version placeholder(/versionTest.html)", async (t) => {
 	const res = await request.get("/versionTest.html");
