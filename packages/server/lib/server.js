@@ -1,4 +1,3 @@
-import express from "express";
 import portscanner from "portscanner";
 import MiddlewareManager from "./middleware/MiddlewareManager.js";
 import {createReaderCollection} from "@ui5/fs/resourceFactory";
@@ -7,6 +6,16 @@ import {getLogger} from "@ui5/logger";
 import {getUnsupportedHttp2Message} from "./http2Support.js";
 
 const log = getLogger("server");
+
+// Lazy-loaded: Express is only imported on non-Bun runtimes.
+// On Bun, BunNativeApp handles both HTTP/1 and HTTP/2, so Express is never loaded.
+let _express;
+async function _getExpress() {
+	if (!_express) {
+		_express = (await import("express")).default;
+	}
+	return _express;
+}
 
 function _addRuntimeHeader(app, runtime = process.versions.bun ? "bun" : "node") {
 	app.use(function runtimeHeader(req, res, next) {
@@ -86,7 +95,79 @@ function _listen(app, port, changePortIfInUse, acceptRemoteConnections) {
 }
 
 /**
- * Adds SSL support to an express application.
+ * Start an HTTP/2 server using BunNativeApp.listenH2().
+ *
+ * Uses node:http2.createSecureServer({allowHTTP1: true}) under the hood.
+ * Only called on Bun — Express is not involved.
+ *
+ * @param {object} app The BunNativeApp instance
+ * @param {number} port Desired port to listen to
+ * @param {boolean} changePortIfInUse If true and the port is already in use, an unused port is searched
+ * @param {boolean} acceptRemoteConnections If true, listens to remote connections
+ * @param {string} key Private key for TLS
+ * @param {string} cert Certificate for TLS
+ * @returns {Promise<object>} Returns an object containing server and port
+ * @private
+ */
+function _listenH2(app, port, changePortIfInUse, acceptRemoteConnections, key, cert) {
+	return new Promise(function(resolve, reject) {
+		const options = {key, cert};
+
+		if (!acceptRemoteConnections) {
+			options.host = "127.0.0.1";
+		}
+
+		const portScanHost = options.host || "127.0.0.1";
+		let portMax;
+		if (changePortIfInUse) {
+			portMax = port + 30;
+		} else {
+			portMax = port;
+		}
+
+		portscanner.findAPortNotInUse(port, portMax, portScanHost, function(error, foundPort) {
+			if (error) {
+				reject(error);
+				return;
+			}
+
+			if (!foundPort) {
+				if (changePortIfInUse) {
+					const portError = new Error(
+						`EADDRINUSE: Could not find available ports between ${port} and ${portMax}.`);
+					portError.code = "EADDRINUSE";
+					portError.errno = "EADDRINUSE";
+					portError.address = portScanHost;
+					portError.port = portMax;
+					reject(portError);
+					return;
+				} else {
+					const portError = new Error(`EADDRINUSE: Port ${port} is already in use.`);
+					portError.code = "EADDRINUSE";
+					portError.errno = "EADDRINUSE";
+					portError.address = portScanHost;
+					portError.port = portMax;
+					reject(portError);
+					return;
+				}
+			}
+
+			options.port = foundPort;
+			const server = app.listenH2(options, function() {
+				resolve({port: options.port, server});
+			});
+
+			server.on("error", function(err) {
+				reject(err);
+			});
+		});
+	});
+}
+
+/**
+ * Adds SSL support to an express application (Node.js only).
+ *
+ * On Bun, HTTP/2 is handled by BunNativeApp.listenH2() — this function is not called.
  *
  * @param {object} parameters
  * @param {object} parameters.app The original express application
@@ -96,23 +177,6 @@ function _listen(app, port, changePortIfInUse, acceptRemoteConnections) {
  * @private
  */
 async function _addSsl({app, key, cert}) {
-	if (process.versions.bun) {
-		const {createSecureServer, Http2ServerRequest, Http2ServerResponse} = await import("node:http2");
-
-		const expressRequestPrototype = Object.getPrototypeOf(app.request);
-		const expressResponsePrototype = Object.getPrototypeOf(app.response);
-		const requestPrototype = Object.create(Http2ServerRequest.prototype);
-		const responsePrototype = Object.create(Http2ServerResponse.prototype);
-
-		Object.defineProperties(requestPrototype, Object.getOwnPropertyDescriptors(expressRequestPrototype));
-		Object.defineProperties(responsePrototype, Object.getOwnPropertyDescriptors(expressResponsePrototype));
-
-		app.request = Object.create(requestPrototype, Object.getOwnPropertyDescriptors(app.request));
-		app.response = Object.create(responsePrototype, Object.getOwnPropertyDescriptors(app.response));
-
-		return createSecureServer({allowHTTP1: true, cert, key}, app);
-	}
-
 	// Using spdy as http2 server as the native http2 implementation
 	// from Node v8.4.0 doesn't seem to work with express
 	const {default: spdy} = await import("spdy");
@@ -202,9 +266,22 @@ export async function serve(graph, {
 		}
 	});
 
-	let app = express();
+	// On Bun: use BunNativeApp for BOTH HTTP/1 (Bun.serve()) and HTTP/2 (node:http2).
+	// Express is NOT loaded at all — the standalone "router" package handles middleware dispatch.
+	// On Node: use Express (required for spdy-based HTTP/2 and traditional HTTP/1).
+	let app;
+	if (process.versions.bun) {
+		const {default: createBunNativeApp} = await import("./bun/BunNativeApp.js");
+		app = createBunNativeApp();
+	} else {
+		app = (await _getExpress())();
+	}
+
 	_addRuntimeHeader(app);
 	await middlewareManager.applyMiddleware(app);
+
+	let port;
+	let server;
 
 	if (h2) {
 		const unsupportedHttp2Message = getUnsupportedHttp2Message();
@@ -213,10 +290,27 @@ export async function serve(graph, {
 			process.exit(1);
 		}
 
-		app = await _addSsl({app, key, cert});
+		if (process.versions.bun) {
+			// Bun: BunNativeApp.listenH2() uses node:http2.createSecureServer({allowHTTP1: true}).
+			// Http2ServerRequest/Http2ServerResponse implement the full Node.js HTTP API,
+			// so the middleware chain works directly — no Express prototype manipulation needed.
+			const listenResult = await _listenH2(app, requestedPort, changePortIfInUse,
+				acceptRemoteConnections, key, cert);
+			port = listenResult.port;
+			server = listenResult.server;
+		} else {
+			app = await _addSsl({app, key, cert});
+			const listenResult = await _listen(app, requestedPort, changePortIfInUse,
+				acceptRemoteConnections);
+			port = listenResult.port;
+			server = listenResult.server;
+		}
+	} else {
+		const listenResult = await _listen(app, requestedPort, changePortIfInUse,
+			acceptRemoteConnections);
+		port = listenResult.port;
+		server = listenResult.server;
 	}
-
-	const {port, server} = await _listen(app, requestedPort, changePortIfInUse, acceptRemoteConnections);
 
 	return {
 		h2,
