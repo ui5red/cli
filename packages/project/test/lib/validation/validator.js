@@ -136,3 +136,101 @@ test("Validator#_compileSchema cache test", async (t) => {
 	t.is(compileAsyncStub.callCount, 1);
 	t.deepEqual(compileAsyncStub.getCall(0).args, [schema1]);
 });
+
+// --- Negative test cases ---
+
+test("Validator#validate throws ValidationError on invalid config", async (t) => {
+	const {sinon, Validator} = t.context;
+
+	const validationErrors = [{keyword: "required", message: "must have required property 'specVersion'"}];
+	const schema = {type: "object"};
+
+	const validateFn = sinon.stub().returns(false);
+	validateFn.errors = validationErrors;
+	validateFn.schema = schema;
+
+	const compileAsyncStub = sinon.stub().resolves(validateFn);
+	const loadSchemaStub = sinon.stub(Validator, "loadSchema").resolves({}); // eslint-disable-line no-unused-vars
+
+	const Ajv = sinon.stub().returns({
+		compileAsync: compileAsyncStub
+	});
+	const ajvErrors = sinon.stub();
+
+	const validator = new Validator({Ajv, ajvErrors, schemaName: "ui5"});
+
+	const error = await t.throwsAsync(() =>
+		validator.validate({config: {}, project: {id: "test-project"}})
+	);
+
+	t.truthy(error);
+	t.is(error.name, "ValidationError");
+});
+
+test("Validator constructor throws with null schemaName", (t) => {
+	const {sinon} = t.context;
+	const Ajv = sinon.stub();
+	const ajvErrors = sinon.stub();
+
+	t.throws(() => {
+		new t.context.Validator({Ajv, ajvErrors, schemaName: null});
+	}, {
+		message: /schemaName.*missing or incorrect/
+	});
+});
+
+test("Validator constructor throws with empty string schemaName", (t) => {
+	const {sinon} = t.context;
+	const Ajv = sinon.stub();
+	const ajvErrors = sinon.stub();
+
+	t.throws(() => {
+		new t.context.Validator({Ajv, ajvErrors, schemaName: ""});
+	}, {
+		message: /schemaName.*missing or incorrect/
+	});
+});
+
+test("validate function propagates ValidationError from Validator#validate", async (t) => {
+	const {sinon, Validator, validate} = t.context;
+
+	const validationError = new Error("Invalid configuration.");
+	validationError.name = "ValidationError";
+
+	sinon.stub(Validator.prototype, "validate").rejects(validationError);
+
+	const error = await t.throwsAsync(() =>
+		validate({config: {}, project: {id: "test"}})
+	);
+
+	t.is(error.name, "ValidationError");
+	t.is(error.message, "Invalid configuration.");
+});
+
+test("validate function passes through config, project, and yaml", async (t) => {
+	const {sinon, Validator, validate} = t.context;
+
+	const validateStub = sinon.stub(Validator.prototype, "validate").resolves();
+
+	const config = {specVersion: "4.0", type: "application", metadata: {name: "test"}};
+	const project = {id: "my-project"};
+	const yaml = {path: "/path/to/ui5.yaml", source: "specVersion: '4.0'"};
+
+	await validate({config, project, yaml});
+
+	t.is(validateStub.callCount, 1);
+	t.deepEqual(validateStub.getCall(0).args[0], {config, project, yaml});
+});
+
+test("validateWorkspace passes config without project property", async (t) => {
+	const {sinon, Validator, validateWorkspace} = t.context;
+
+	const validateStub = sinon.stub(Validator.prototype, "validate").resolves();
+
+	const config = {specVersion: "workspace/1.0"};
+
+	await validateWorkspace({config});
+
+	t.is(validateStub.callCount, 1);
+	t.deepEqual(validateStub.getCall(0).args[0], {config});
+});

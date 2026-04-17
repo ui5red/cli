@@ -107,12 +107,14 @@ ${SOURCE_MAPPING_URL}=test.controller.js.map`;
 	});
 	t.deepEqual(await sourceMapResource.getString(), expectedSourceMap, "Correct source map content");
 
-	// Call to registerCleanupTask indicates worker pool was used
-	t.is(taskUtilMock.registerCleanupTask.callCount, 1, "taskUtil#registerCleanupTask got called once");
+	// Calls to registerCleanupTask: once from createPool (workerpool termination) and
+	// once from getPool (nulling module-level pool reference)
+	t.is(taskUtilMock.registerCleanupTask.callCount, 2, "taskUtil#registerCleanupTask got called twice");
 
-	// Ensure to call cleanup task so that workerpool is terminated - otherwise the test will time out!
-	const cleanupTask = taskUtilMock.registerCleanupTask.getCall(0).args[0];
-	await cleanupTask();
+	// Ensure to call cleanup tasks so that workerpool is terminated - otherwise the test will time out!
+	for (let i = 0; i < taskUtilMock.registerCleanupTask.callCount; i++) {
+		await taskUtilMock.registerCleanupTask.getCall(i).args[0]();
+	}
 });
 
 test("Basic minifier with taskUtil and unexpected termination of the workerpool", async (t) => {

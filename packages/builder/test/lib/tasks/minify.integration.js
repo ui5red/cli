@@ -103,9 +103,10 @@ test();`;
 	t.is(taskUtil.setTag.getCall(3).args[1], "3️⃣",
 		"Fourth taskUtil.setTag call with expected second arguments");
 
-	// Ensure to call cleanup task so that workerpool is terminated - otherwise the test will time out!
-	const cleanupTask = taskUtil.registerCleanupTask.getCall(0).args[0];
-	await cleanupTask();
+	// Ensure to call cleanup tasks so that workerpool is terminated - otherwise the test will time out!
+	for (let i = 0; i < taskUtil.registerCleanupTask.callCount; i++) {
+		await taskUtil.registerCleanupTask.getCall(i).args[0]();
+	}
 });
 
 test.serial("integration: minify omitSourceMapResources=false", async (t) => {
@@ -178,9 +179,10 @@ ${SOURCE_MAPPING_URL}=test.js.map`;
 	t.is(taskUtil.setTag.getCall(2).args[1], "1️⃣",
 		"Third taskUtil.setTag call with expected second arguments");
 
-	// Ensure to call cleanup task so that workerpool is terminated - otherwise the test will time out!
-	const cleanupTask = taskUtil.registerCleanupTask.getCall(0).args[0];
-	await cleanupTask();
+	// Ensure to call cleanup tasks so that workerpool is terminated - otherwise the test will time out!
+	for (let i = 0; i < taskUtil.registerCleanupTask.callCount; i++) {
+		await taskUtil.registerCleanupTask.getCall(i).args[0]();
+	}
 });
 
 test("integration: minify omitSourceMapResources=true (without taskUtil)", async (t) => {
@@ -314,9 +316,10 @@ return;`;
 			`/resources/my/namespace/test.js (line 3, col 0, pos 48)`
 	}, `Threw with expected error message`);
 
-	// Ensure to call cleanup task so that workerpool is terminated - otherwise the test will time out!
-	const cleanupTask = taskUtil.registerCleanupTask.getCall(0).args[0];
-	await cleanupTask();
+	// Ensure to call cleanup tasks so that workerpool is terminated - otherwise the test will time out!
+	for (let i = 0; i < taskUtil.registerCleanupTask.callCount; i++) {
+		await taskUtil.registerCleanupTask.getCall(i).args[0]();
+	}
 });
 
 
@@ -428,7 +431,8 @@ test.serial("integration: minify with taskUtil and resources tagged with OmitFro
 		tag: taskUtil.STANDARD_TAGS.HasDebugVariant,
 	}], "Correct tags set on resources");
 
-	// Ensure to call cleanup task so that workerpool is terminated - otherwise the test will time out!
-	const cleanupTask = taskUtil.registerCleanupTask.getCall(0).args[0];
-	await cleanupTask();
+	// Ensure to call cleanup tasks so that workerpool is terminated - otherwise the test will time out!
+	for (let i = 0; i < taskUtil.registerCleanupTask.callCount; i++) {
+		await taskUtil.registerCleanupTask.getCall(i).args[0]();
+	}
 });

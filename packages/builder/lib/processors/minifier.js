@@ -1,19 +1,11 @@
-import {fileURLToPath} from "node:url";
 import posixPath from "node:path/posix";
 import {promisify} from "node:util";
-import os from "node:os";
-import workerpool from "workerpool";
 import Resource from "@ui5/fs/Resource";
 import {getLogger} from "@ui5/logger";
 const log = getLogger("builder:processors:minifier");
-import {setTimeout as setTimeoutPromise} from "node:timers/promises";
+import {createPool} from "../utils/workerpool.js";
 
 const debugFileRegex = /((?:\.view|\.fragment|\.controller|\.designtime|\.support)?\.js)$/;
-
-const MIN_WORKERS = 2;
-const MAX_WORKERS = 4;
-const osCpus = os.cpus().length || 1;
-const maxWorkers = Math.max(Math.min(osCpus - 1, MAX_WORKERS), MIN_WORKERS);
 
 const sourceMappingUrlPattern = /\/\/# sourceMappingURL=(\S+)\s*$/;
 const httpPattern = /^https?:\/\//i;
@@ -23,54 +15,14 @@ let pool;
 
 function getPool(taskUtil) {
 	if (!pool) {
-		log.verbose(`Creating workerpool with up to ${maxWorkers} workers (available CPU cores: ${osCpus})`);
-		const workerPath = fileURLToPath(new URL("./minifierWorker.js", import.meta.url));
-		pool = workerpool.pool(workerPath, {
-			// Bun requires "thread" workerType because workerpool's "auto" mode uses
-			// child_process.fork() which does not reliably support the workerpool
-			// protocol on Bun. The "thread" mode uses worker_threads which Bun supports.
-			// See also the force-termination logic below.
-			workerType: process.versions.bun ? "thread" : "auto",
-			maxWorkers
+		pool = createPool({
+			workerUrl: new URL("./minifierWorker.js", import.meta.url),
+			taskUtil
 		});
-		taskUtil.registerCleanupTask((force) => {
-			const attemptPoolTermination = async () => {
-				log.verbose(`Attempt to terminate the workerpool...`);
-
-				if (!pool) {
-					return;
-				}
-
-				if (process.versions.bun) {
-					// On Bun, workerpool's graceful shutdown (waiting for idle workers)
-					// can hang because Bun's worker_threads implementation does not
-					// always surface the correct idle/total worker stats.
-					// Force-terminate to avoid blocking the build process. This is safe
-					// here because the minifier task has already collected all results
-					// by the time cleanup runs.
-					const poolToBeTerminated = pool;
-					pool = null;
-					return poolToBeTerminated.terminate(true);
-				}
-
-				// There are many stats that could be used, but these ones seem the most
-				// convenient. When all the (available) workers are idle, then it's safe to terminate.
-				let {idleWorkers, totalWorkers} = pool.stats();
-				while (idleWorkers !== totalWorkers && !force) {
-					await setTimeoutPromise(100); // Wait a bit workers to finish and try again
-
-					if (!pool) { // pool might have been terminated in the meantime
-						return;
-					}
-					({idleWorkers, totalWorkers} = pool.stats());
-				}
-
-				const poolToBeTerminated = pool;
-				pool = null;
-				return poolToBeTerminated.terminate(force);
-			};
-
-			return attemptPoolTermination();
+		// Null out module-level reference on cleanup so the pool is re-created
+		// if minifier is called again after cleanup.
+		taskUtil.registerCleanupTask(() => {
+			pool = null;
 		});
 	}
 	return pool;

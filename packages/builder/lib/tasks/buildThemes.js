@@ -3,66 +3,21 @@ import fsInterface from "@ui5/fs/fsInterface";
 import ReaderCollectionPrioritized from "@ui5/fs/ReaderCollectionPrioritized";
 import {getLogger} from "@ui5/logger";
 const log = getLogger("builder:tasks:buildThemes");
-import {fileURLToPath} from "node:url";
-import os from "node:os";
-import workerpool from "workerpool";
+import {createPool} from "../utils/workerpool.js";
 import {deserializeResources, serializeResources, FsMainThreadInterface} from "../processors/themeBuilderWorker.js";
-import {setTimeout as setTimeoutPromise} from "node:timers/promises";
 
 let pool;
 
 function getPool(taskUtil) {
 	if (!pool) {
-		const MIN_WORKERS = 2;
-		const MAX_WORKERS = 4;
-		const osCpus = os.cpus().length || 1;
-		const maxWorkers = Math.max(Math.min(osCpus - 1, MAX_WORKERS), MIN_WORKERS);
-
-		log.verbose(`Creating workerpool with up to ${maxWorkers} workers (available CPU cores: ${osCpus})`);
-		const workerPath = fileURLToPath(new URL("../processors/themeBuilderWorker.js", import.meta.url));
-		pool = workerpool.pool(workerPath, {
-			// Use "thread" (worker_threads) for all runtimes. workerpool's "auto"
-			// mode uses child_process.fork() which does not reliably support the
-			// workerpool protocol on Bun.
-			workerType: "thread",
-			maxWorkers
+		pool = createPool({
+			workerUrl: new URL("../processors/themeBuilderWorker.js", import.meta.url),
+			taskUtil
 		});
-		taskUtil.registerCleanupTask((force) => {
-			const attemptPoolTermination = async () => {
-				log.verbose(`Attempt to terminate the workerpool...`);
-
-				if (!pool) {
-					return;
-				}
-
-				if (process.versions.bun) {
-					// On Bun, workerpool's graceful shutdown can hang because Bun's
-					// worker_threads does not always surface correct idle/total stats.
-					// Force-terminate to avoid blocking. Safe because all theme build
-					// results have been collected before cleanup runs.
-					const poolToBeTerminated = pool;
-					pool = null;
-					return poolToBeTerminated.terminate(true);
-				}
-
-				// There are many stats that could be used, but these ones seem the most
-				// convenient. When all the (available) workers are idle, then it's safe to terminate.
-				let {idleWorkers, totalWorkers} = pool.stats();
-				while (idleWorkers !== totalWorkers && !force) {
-					await setTimeoutPromise(100); // Wait a bit workers to finish and try again
-
-					if (!pool) { // pool might have been terminated in the meantime
-						return;
-					}
-					({idleWorkers, totalWorkers} = pool.stats());
-				}
-
-				const poolToBeTerminated = pool;
-				pool = null;
-				return poolToBeTerminated.terminate(force);
-			};
-
-			return attemptPoolTermination();
+		// Null out module-level reference on cleanup so the pool is re-created
+		// if buildThemes is called again after cleanup.
+		taskUtil.registerCleanupTask(() => {
+			pool = null;
 		});
 	}
 	return pool;

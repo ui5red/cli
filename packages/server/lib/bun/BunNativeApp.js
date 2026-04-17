@@ -205,6 +205,10 @@ class BunNativeResponse extends Writable {
 	 * Override end() to handle the common case where middleware calls
 	 * res.end(body) directly without prior write() calls. In this case
 	 * we skip the streaming path entirely and resolve with a simple body.
+	 *
+	 * @param {*} [chunk] Data to write before ending
+	 * @param {string} [encoding] Character encoding
+	 * @param {Function} [callback] Callback for when the stream is finished
 	 */
 	end(chunk, encoding, callback) {
 		if (typeof chunk === "function") {
@@ -533,6 +537,9 @@ class BunNativeApp {
 
 	/**
 	 * Start an HTTP/1 server using Bun.serve().
+	 *
+	 * @param {object} options Server options
+	 * @param {Function} [callback] Callback for when server is listening
 	 */
 	listen(options, callback) {
 		const server = new BunNativeServer({
@@ -551,6 +558,9 @@ class BunNativeApp {
 	/**
 	 * Start an HTTP/2 + HTTP/1.1 server using node:http2.createSecureServer().
 	 * Both H2 and H1 clients are supported over TLS via ALPN negotiation.
+	 *
+	 * @param {object} options Server options
+	 * @param {Function} [callback] Callback for when server is listening
 	 */
 	listenH2(options, callback) {
 		const server = new BunNativeH2Server({

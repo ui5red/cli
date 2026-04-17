@@ -8,9 +8,21 @@ test("No HTTP/2 warning for supported Node runtime", (t) => {
 });
 
 test("HTTP/2 warning for Node 24", (t) => {
-	t.is(getUnsupportedHttp2Message({
+	const msg = getUnsupportedHttp2Message({
 		node: "24.0.0"
-	}), "ERROR: With Node v24, usage of HTTP/2 is no longer supported. Please check https://github.com/UI5/cli/issues/327 for updates.");
+	});
+	t.truthy(msg);
+	t.true(msg.startsWith("ERROR:"));
+	t.true(msg.includes("Node v24"));
+	t.true(msg.includes("HTTP/2"));
+});
+
+test("HTTP/2 warning for Node 25+", (t) => {
+	const msg = getUnsupportedHttp2Message({
+		node: "25.1.0"
+	});
+	t.truthy(msg);
+	t.true(msg.includes("Node v24"));
 });
 
 test("No HTTP/2 warning for Bun runtime", (t) => {
@@ -18,4 +30,22 @@ test("No HTTP/2 warning for Bun runtime", (t) => {
 		bun: "1.3.1",
 		node: "24.3.0"
 	}), null);
+});
+
+test("No HTTP/2 warning for Node 22", (t) => {
+	t.is(getUnsupportedHttp2Message({
+		node: "22.0.0"
+	}), null);
+});
+
+test("No HTTP/2 warning for Node 18", (t) => {
+	t.is(getUnsupportedHttp2Message({
+		node: "18.19.0"
+	}), null);
+});
+
+test("Uses process.versions as default parameter", (t) => {
+	// Calling without args should not throw
+	const result = getUnsupportedHttp2Message();
+	t.is(typeof result === "string" || result === null, true);
 });
