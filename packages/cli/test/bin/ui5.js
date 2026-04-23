@@ -1,7 +1,9 @@
 import test from "ava";
 import sinonGlobal from "sinon";
+import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import {createRequire, Module} from "node:module";
+import {runInNewContext} from "node:vm";
 import chalk from "chalk";
 import * as td from "testdouble";
 
@@ -399,4 +401,78 @@ test.serial("integration: Executing main when required as main module (catch ini
 	t.is(processStderrWriteStub.getCall(2).args.length, 1);
 	t.true(processStderrWriteStub.getCall(2).args[0] instanceof Error);
 	t.is(processStderrWriteStub.getCall(2).args[0].message, "TEST: Unable to invoke CLI");
+});
+
+test.serial("integration: Bun main-module execution keeps the process alive until main settles", async (t) => {
+	const {sinon} = t.context;
+	const binFilePath = fileURLToPath(new URL("../../bin/ui5.cjs", import.meta.url));
+	const keepAliveHandle = {keepAlive: true};
+	const setIntervalStub = sinon.stub().returns(keepAliveHandle);
+	const clearIntervalStub = sinon.stub();
+	const processExitStub = sinon.stub();
+	const processStderrWriteStub = sinon.stub();
+	const mainStub = sinon.stub();
+	let resolveMain;
+	const mainPromise = new Promise((resolve) => {
+		resolveMain = resolve;
+	});
+	mainStub.returns(mainPromise);
+
+	const source = readFileSync(binFilePath, "utf8").replace(/^#!.*\n/, "");
+	const instrumentedSource = source.replace("module.exports = ui5;", [
+		"ui5.main = globalThis.__mockMain;",
+		"module.exports = ui5;"
+	].join("\n"));
+
+	t.not(instrumentedSource, source);
+
+	const module = {exports: {}};
+	const sandbox = {
+		__dirname: fileURLToPath(new URL("../../bin", import.meta.url)),
+		__mockMain: mainStub,
+		clearInterval: clearIntervalStub,
+		exports: module.exports,
+		globalThis: undefined,
+		module,
+		process: {
+			env: {},
+			exit: processExitStub,
+			stderr: {
+				write: processStderrWriteStub
+			},
+			versions: {
+				bun: "1.0.0"
+			}
+		},
+		require(moduleName) {
+			if (moduleName === "path") {
+				return require("path");
+			}
+
+			throw new Error(`Unexpected module request in VM test: ${moduleName}`);
+		},
+		setInterval: setIntervalStub,
+	};
+	sandbox.globalThis = sandbox;
+
+	// Run the CommonJS bin in a sandbox because the Bun repo-checkout path invokes main()
+	// synchronously during module evaluation, before the exported object can be stubbed.
+	runInNewContext(instrumentedSource, sandbox, {filename: binFilePath});
+
+	t.is(mainStub.callCount, 1);
+	t.is(setIntervalStub.callCount, 1);
+	t.is(typeof setIntervalStub.getCall(0).args[0], "function");
+	t.is(setIntervalStub.getCall(0).args[1], 1 << 30);
+	t.is(clearIntervalStub.callCount, 0);
+	t.is(processExitStub.callCount, 0);
+	t.is(processStderrWriteStub.callCount, 0);
+
+	resolveMain();
+	await mainPromise;
+	await Promise.resolve();
+
+	t.is(clearIntervalStub.callCount, 1);
+	t.deepEqual(clearIntervalStub.getCall(0).args, [keepAliveHandle]);
+	t.is(processExitStub.callCount, 0);
+	t.is(processStderrWriteStub.callCount, 0);
 });

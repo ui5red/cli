@@ -68,5 +68,5 @@ export default async (pkg) => {
 	// Format terminal output to full available width
 	cli.wrap(cli.terminalWidth());
 
-	return cli.parse();
+	return cli.parseAsync();
 };

@@ -56,7 +56,7 @@ Files:
 
 workerpool's `auto` mode uses `child_process.fork()` which Bun does not support reliably. This fork forces `workerType: "thread"` (worker_threads) on Bun.
 
-Worker-based theme building (`buildThemes`) is enabled on Bun. The theme builder uses `MessageChannel`/`MessagePort` for cross-thread filesystem communication, and Bun's worker_threads supports this.
+Worker-based theme building (`buildThemes`) is now disabled on Bun. The MessageChannel/MessagePort worker path can crash Bun during theme-library builds, so Bun falls back to in-process theme compilation for runtime safety.
 
 The minifier worker pool is disabled on Bun as a conservative choice — workerpool's graceful shutdown can hang because Bun's worker_threads does not always surface accurate idle/total worker stats. Force-termination logic is added for Bun in both pool cleanup paths.
 

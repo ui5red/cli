@@ -1,4 +1,10 @@
+import {spawn} from "node:child_process";
+import path from "node:path";
+import process from "node:process";
+import {fileURLToPath} from "node:url";
 import baseMiddleware from "../middlewares/base.js";
+
+const ui5CliEntryPath = fileURLToPath(new URL("../../../bin/ui5.cjs", import.meta.url));
 
 const build = {
 	command: "build",
@@ -22,6 +28,12 @@ build.builder = function(cli) {
 		.command("self-contained",
 			"Build project and create self-contained bundle. " +
 			"Recommended to be used in conjunction with --include-all-dependencies", {
+				handler: handleBuild,
+				builder: noop,
+				middlewares: [baseMiddleware]
+			})
+		.command("experimental-source-esm",
+			"Experimental bridge-free source-native ESM build for application projects", {
 				handler: handleBuild,
 				builder: noop,
 				middlewares: [baseMiddleware]
@@ -144,14 +156,98 @@ build.builder = function(cli) {
 		.example("ui5 build --include-task=minify --exclude-task=generateComponentPreload",
 			"Build project by applying all default tasks including the minify " +
 			"task and excluding the generateComponentPreload task")
+		.example("ui5 build experimental-source-esm",
+			"Run the standard build and then generate experimental bridge-free source-native ESM outputs")
 		.example("ui5 build --experimental-css-variables",
 			"Preload build with experimental CSS variables artifacts");
 };
 
-async function handleBuild(argv) {
-	const {graphFromStaticFile, graphFromPackageDependencies} = await import("@ui5/project/graph");
+function appendCliOption(args, name, value) {
+	if (value == null || value === false) {
+		return;
+	}
+	if (value === true) {
+		args.push(name);
+		return;
+	}
+	if (Array.isArray(value)) {
+		value.forEach((entry) => {
+			appendCliOption(args, name, entry);
+		});
+		return;
+	}
+	args.push(name, `${value}`);
+}
 
+function getExperimentalSourceEsmPrerequisiteArgs(argv) {
+	const args = ["build"];
+
+	appendCliOption(args, "--config", argv.config);
+	appendCliOption(args, "--dependency-definition", argv.dependencyDefinition);
+	appendCliOption(args, "--framework-version", argv.frameworkVersion);
+	appendCliOption(args, "--cache-mode", argv.cacheMode);
+	appendCliOption(args, "--workspace-config", argv.workspaceConfig);
+
+	if (argv.workspace === false) {
+		args.push("--no-workspace");
+	} else {
+		appendCliOption(args, "--workspace", argv.workspace);
+	}
+
+	if (argv["include-all-dependencies"]) {
+		args.push("--all");
+	}
+
+	appendCliOption(args, "--include-dependency", argv["include-dependency"]);
+	appendCliOption(args, "--include-dependency-regexp", argv["include-dependency-regexp"]);
+	appendCliOption(args, "--include-dependency-tree", argv["include-dependency-tree"]);
+	appendCliOption(args, "--exclude-dependency", argv["exclude-dependency"]);
+	appendCliOption(args, "--exclude-dependency-regexp", argv["exclude-dependency-regexp"]);
+	appendCliOption(args, "--exclude-dependency-tree", argv["exclude-dependency-tree"]);
+	appendCliOption(args, "--dest", argv.dest);
+	appendCliOption(args, "--clean-dest", argv["clean-dest"]);
+	appendCliOption(args, "--create-build-manifest", argv["create-build-manifest"]);
+	appendCliOption(args, "--include-task", argv["include-task"]);
+	appendCliOption(args, "--exclude-task", argv["exclude-task"]);
+	appendCliOption(args, "--experimental-css-variables", argv["experimental-css-variables"]);
+	appendCliOption(args, "--output-style", argv["output-style"]);
+
+	return args;
+}
+
+async function runExperimentalSourceEsmPrerequisiteBuildWithNode(argv) {
+	const nodeBinary = process.env.NODE_RUNTIME_BINARY || process.env.npm_node_execpath || "node";
+	const env = {
+		...process.env,
+		UI5_CLI_NO_LOCAL: process.env.UI5_CLI_NO_LOCAL ?? "1"
+	};
+
+	await new Promise((resolve, reject) => {
+		const child = spawn(nodeBinary, [ui5CliEntryPath, ...getExperimentalSourceEsmPrerequisiteArgs(argv)], {
+			cwd: process.cwd(),
+			env,
+			stdio: "inherit"
+		});
+
+		child.on("error", reject);
+		child.on("close", (code, signal) => {
+			if (signal) {
+				reject(new Error(`Node prerequisite build terminated with signal ${signal}`));
+				return;
+			}
+			if (code !== 0) {
+				reject(new Error(`Node prerequisite build exited with code ${code}`));
+				return;
+			}
+			resolve();
+		});
+	});
+}
+
+async function handleBuild(argv) {
 	const command = argv._[argv._.length - 1];
+
+	const {graphFromStaticFile, graphFromPackageDependencies} = await import("@ui5/project/graph");
 
 	let graph;
 	if (argv.dependencyDefinition) {
@@ -171,7 +267,7 @@ async function handleBuild(argv) {
 		});
 	}
 	const buildSettings = graph.getRoot().getBuilderSettings() || {};
-	await graph.build({
+	const buildOptions = {
 		graph,
 		destPath: argv.dest,
 		cleanDest: argv["clean-dest"],
@@ -194,7 +290,31 @@ async function handleBuild(argv) {
 		excludedTasks: argv["exclude-task"],
 		cssVariables: argv["experimental-css-variables"],
 		outputStyle: argv["output-style"],
-	});
+	};
+
+	let prerequisiteBuildDelegated = false;
+	if (command === "experimental-source-esm" && process.versions.bun) {
+		try {
+			await runExperimentalSourceEsmPrerequisiteBuildWithNode(argv);
+			prerequisiteBuildDelegated = true;
+		} catch (error) {
+			if (error?.code !== "ENOENT") {
+				throw error;
+			}
+		}
+	}
+
+	if (!prerequisiteBuildDelegated) {
+		await graph.build(buildOptions);
+	}
+
+	if (command === "experimental-source-esm") {
+		const {default: buildExperimentalSourceEsm} = await import("../../framework/experimentalSourceEsm.js");
+		await buildExperimentalSourceEsm({
+			projectRoot: process.cwd(),
+			runtimeDistDir: path.resolve(process.cwd(), argv.dest)
+		});
+	}
 }
 
 function noop() {}

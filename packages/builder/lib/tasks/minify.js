@@ -1,5 +1,6 @@
 import minifier from "../processors/minifier.js";
 import fsInterface from "@ui5/fs/fsInterface";
+import process from "node:process";
 
 /**
  * @public
@@ -36,7 +37,7 @@ export default async function({
 		options: {
 			addSourceMappingUrl: !omitSourceMapResources,
 			readSourceMappingUrl: !!useInputSourceMaps,
-			useWorkers: !!taskUtil,
+			useWorkers: !!taskUtil && !process.versions.bun,
 		}
 	});
 

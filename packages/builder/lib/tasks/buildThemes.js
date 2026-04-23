@@ -1,4 +1,5 @@
 import path from "node:path";
+import process from "node:process";
 import fsInterface from "@ui5/fs/fsInterface";
 import ReaderCollectionPrioritized from "@ui5/fs/ReaderCollectionPrioritized";
 import {getLogger} from "@ui5/logger";
@@ -7,6 +8,10 @@ import {createPool} from "../utils/workerpool.js";
 import {deserializeResources, serializeResources, FsMainThreadInterface} from "../processors/themeBuilderWorker.js";
 
 let pool;
+
+function shouldUseWorkers(taskUtil) {
+	return !!taskUtil && !process.versions.bun;
+}
 
 function getPool(taskUtil) {
 	if (!pool) {
@@ -160,7 +165,10 @@ export default async function({
 	}
 
 	let processedResources;
-	const useWorkers = !!taskUtil;
+	const useWorkers = shouldUseWorkers(taskUtil);
+	if (taskUtil && !useWorkers && process.versions.bun && log.isLevelEnabled("verbose")) {
+		log.verbose("Disabling worker-based theme builds on Bun to avoid runtime crashes in the MessageChannel path");
+	}
 	if (useWorkers) {
 		const threadMessageHandler = new FsMainThreadInterface(fsInterface(combo));
 

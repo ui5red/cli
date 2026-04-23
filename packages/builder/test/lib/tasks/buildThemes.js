@@ -15,6 +15,9 @@ test.beforeEach(async (t) => {
 	t.context.themeBuilderStub = sinon.stub();
 	t.context.fsInterfaceStub = sinon.stub();
 	t.context.fsInterfaceStub.returns({});
+	t.context.processStub = {
+		versions: {}
+	};
 
 	t.context.ReaderCollectionPrioritizedStub = sinon.stub();
 	t.context.comboByGlob = sinon.stub().resolves([]);
@@ -23,6 +26,7 @@ test.beforeEach(async (t) => {
 	buildThemes = await esmock.p("../../../lib/tasks/buildThemes.js", {
 		"@ui5/fs/fsInterface": t.context.fsInterfaceStub,
 		"@ui5/fs/ReaderCollectionPrioritized": t.context.ReaderCollectionPrioritizedStub,
+		"node:process": t.context.processStub,
 		"../../../lib/processors/themeBuilder.js": t.context.themeBuilderStub
 	});
 });
@@ -552,6 +556,62 @@ test.serial("buildThemes (useWorkers = true)", async (t) => {
 	// Ensure to call cleanup task so that workerpool is terminated - otherwise the test will time out!
 	const cleanupTask = taskUtilMock.registerCleanupTask.getCall(0).args[0];
 	await cleanupTask();
+});
+
+test.serial("buildThemes disables worker mode on Bun", async (t) => {
+	t.plan(7);
+
+	t.context.processStub.versions.bun = "1.3.13";
+
+	const taskUtilMock = {
+		registerCleanupTask: sinon.stub()
+	};
+	const lessResource = {};
+	const workspace = {
+		byGlob: async (globPattern) => {
+			if (globPattern === "/resources/test/library.source.less") {
+				return [lessResource];
+			}
+			return [];
+		},
+		write: sinon.stub()
+	};
+	const cssResource = {};
+	const cssRtlResource = {};
+	const jsonParametersResource = {};
+
+	t.context.themeBuilderStub.returns([
+		cssResource,
+		cssRtlResource,
+		jsonParametersResource
+	]);
+
+	await buildThemes({
+		workspace,
+		taskUtil: taskUtilMock,
+		options: {
+			projectName: "sap.ui.demo.app",
+			inputPattern: "/resources/test/library.source.less"
+		}
+	});
+
+	t.is(t.context.themeBuilderStub.callCount, 1,
+		"Processor should be called once without worker mode");
+	t.deepEqual(t.context.themeBuilderStub.getCall(0).args[0], {
+		resources: [lessResource],
+		fs: {},
+		options: {
+			compress: true,
+			cssVariables: false
+		}
+	}, "Processor should be called with expected arguments when Bun disables workers");
+	t.is(workspace.write.callCount, 3,
+		"workspace.write should be called 3 times");
+	t.true(workspace.write.calledWithExactly(cssResource));
+	t.true(workspace.write.calledWithExactly(cssRtlResource));
+	t.true(workspace.write.calledWithExactly(jsonParametersResource));
+	t.is(taskUtilMock.registerCleanupTask.callCount, 0,
+		"No worker cleanup should be registered when Bun disables theme workers");
 });
 
 test.serial("buildThemes with taskUtil and unexpected termination of the workerpool", async (t) => {

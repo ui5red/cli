@@ -129,11 +129,29 @@ const ui5 = {
 
 module.exports = ui5;
 
+function reportFatalInitializationError(err) {
+	process.stderr.write("Fatal Error: Unable to initialize UI5 CLI");
+	process.stderr.write("\n");
+	process.stderr.write(err);
+	process.exit(1);
+}
+
+function runMainModule() {
+	if (!process.versions.bun) {
+		ui5.main().catch(reportFatalInitializationError);
+		return;
+	}
+
+	// Bun does not keep the process alive for this detached CommonJS entrypoint promise,
+	// so hold the event loop open until main() has fully settled.
+	const keepAlive = setInterval(() => {}, 1 << 30);
+	ui5.main()
+		.catch(reportFatalInitializationError)
+		.finally(() => {
+			clearInterval(keepAlive);
+		});
+}
+
 if (process.env.NODE_ENV !== "test" || process.env.UI5_CLI_TEST_BIN_RUN_MAIN !== "false") {
-	ui5.main().catch((err) => {
-		process.stderr.write("Fatal Error: Unable to initialize UI5 CLI");
-		process.stderr.write("\n");
-		process.stderr.write(err);
-		process.exit(1);
-	});
+	runMainModule();
 }

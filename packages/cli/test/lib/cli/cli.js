@@ -20,7 +20,7 @@ test.beforeEach(async (t) => {
 		command: sinon.stub(),
 		terminalWidth: sinon.stub().returns(123),
 		wrap: sinon.stub(),
-		parse: sinon.stub().resolves({_: []})
+		parseAsync: sinon.stub().resolves({_: []})
 	};
 
 	t.context.yargs = sinon.stub().returns(t.context.yargsInstance).named("yargs");
@@ -128,8 +128,8 @@ test.serial("CLI", async (t) => {
 	t.is(yargsInstance.wrap.callCount, 1);
 	t.deepEqual(yargsInstance.wrap.getCall(0).args, [123]);
 
-	t.is(yargsInstance.parse.callCount, 1);
-	t.deepEqual(yargsInstance.parse.getCall(0).args, []);
+	t.is(yargsInstance.parseAsync.callCount, 1);
+	t.deepEqual(yargsInstance.parseAsync.getCall(0).args, []);
 
 	sinon.assert.callOrder(
 		updateNotifier,
@@ -143,7 +143,7 @@ test.serial("CLI", async (t) => {
 		yargsInstance.command,
 		yargsInstance.terminalWidth,
 		yargsInstance.wrap,
-		yargsInstance.parse
+		yargsInstance.parseAsync
 	);
 });
 

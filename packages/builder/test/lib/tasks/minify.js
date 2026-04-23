@@ -172,6 +172,32 @@ test("minify: omitSourceMapResources: true, useInputSourceMaps: false", async (t
 	});
 });
 
+test("minify: Bun disables workers", async (t) => {
+	const {workspace, taskUtil, fsInterfaceStub} = t.context;
+	const minifierStub = t.context.sinon.stub().resolves([]);
+	const minify = await esmock("../../../lib/tasks/minify.js", {
+		"@ui5/fs/fsInterface": fsInterfaceStub,
+		"../../../lib/processors/minifier.js": minifierStub,
+		"node:process": {
+			versions: {
+				bun: "1.3.13"
+			}
+		}
+	});
+
+	await minify({
+		workspace,
+		taskUtil,
+		options: {
+			pattern: "**"
+		}
+	});
+
+	t.is(minifierStub.callCount, 1, "minifier got called once");
+	t.false(minifierStub.firstCall.firstArg.options.useWorkers,
+		"minifier disables workers when running on Bun");
+});
+
 test("minify: No taskUtil", async (t) => {
 	const {minify, workspace, minifierStub} = t.context;
 	minifierStub.resolves([{

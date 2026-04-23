@@ -2,6 +2,7 @@ import workerpool from "workerpool";
 import themeBuilder from "./themeBuilder.js";
 import {createResource} from "@ui5/fs/resourceFactory";
 import {Buffer} from "node:buffer";
+import process from "node:process";
 
 /**
  * Task to build library themes.
@@ -100,7 +101,9 @@ export class FsMainThreadInterface {
 
 		this.#comPorts.add(comPort);
 		comPort.on("message", (e) => this.#onMessage(e, comPort));
-		comPort.on("close", () => comPort.close());
+		comPort.once("close", () => {
+			this.#comPorts.delete(comPort);
+		});
 	}
 
 	/**
@@ -109,7 +112,9 @@ export class FsMainThreadInterface {
 	 * @param {MessagePort} comPort port1 to remove from handling.
 	 */
 	endCommunication(comPort) {
-		comPort.close();
+		if (!process.versions.bun) {
+			comPort.close();
+		}
 		this.#comPorts.delete(comPort);
 	}
 
@@ -117,7 +122,10 @@ export class FsMainThreadInterface {
 	 * Destroys the FsMainThreadInterface
 	 */
 	cleanup() {
-		this.#comPorts.forEach((comPort) => comPort.close());
+		if (!process.versions.bun) {
+			this.#comPorts.forEach((comPort) => comPort.close());
+		}
+		this.#comPorts.clear();
 		this.#cache = null;
 		this.#fsInterfaceReader = null;
 	}
@@ -232,7 +240,14 @@ export class FsWorkerThreadInterface {
 	 * End communication
 	 */
 	#onClose() {
-		this.#comPort.close();
+		const callbacks = this.#callbacks.splice(0);
+		const error = new Error("Theme builder worker communication channel closed before the request completed");
+
+		for (const {callback} of callbacks) {
+			callback(error);
+		}
+
+		this.#comPort = null;
 		this.#cache = null;
 	}
 

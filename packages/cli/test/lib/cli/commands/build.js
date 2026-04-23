@@ -1,3 +1,4 @@
+import {EventEmitter} from "node:events";
 import path from "node:path";
 import test from "ava";
 import sinon from "sinon";
@@ -72,11 +73,15 @@ test.beforeEach(async (t) => {
 	t.context.ProjectGraphStub = sinon.stub().resolves(fakeGraph);
 	t.context.graphFromPackageDependenciesStub = sinon.stub().resolves(fakeGraph);
 	t.context.graphFromStaticFileStub = sinon.stub().resolves(fakeGraph);
+	t.context.buildExperimentalSourceEsmStub = sinon.stub().resolves();
 
 	t.context.build = await esmock.p("../../../../lib/cli/commands/build.js", {
 		"@ui5/project/graph": {
 			graphFromPackageDependencies: t.context.graphFromPackageDependenciesStub,
 			graphFromStaticFile: t.context.graphFromStaticFileStub
+		},
+		"../../../../lib/framework/experimentalSourceEsm.js": {
+			default: t.context.buildExperimentalSourceEsmStub
 		},
 		"@ui5/project/graph/ProjectGraph": t.context.ProjectGraphStub
 	});
@@ -104,6 +109,96 @@ test.serial("ui5 build self-contained", async (t) => {
 
 	expectedBuilderArgs.selfContained = true;
 	t.deepEqual(builder.getCall(0).args[0], expectedBuilderArgs, "Self-contained build called with expected arguments");
+});
+
+test.serial("ui5 build experimental-source-esm", async (t) => {
+	const {build, argv, builder, expectedBuilderArgs, buildExperimentalSourceEsmStub} = t.context;
+
+	argv._.push("experimental-source-esm");
+	argv.dest = "./dist-custom";
+
+	await build.handler(argv);
+
+	expectedBuilderArgs.destPath = "./dist-custom";
+	t.deepEqual(builder.getCall(0).args[0], expectedBuilderArgs,
+		"Experimental source ESM build reuses the standard build with expected arguments");
+	t.deepEqual(buildExperimentalSourceEsmStub.getCall(0).args[0], {
+		projectRoot: process.cwd(),
+		runtimeDistDir: path.resolve(process.cwd(), "./dist-custom")
+	}, "Experimental source ESM helper called with expected project paths");
+	sinon.assert.callOrder(builder, buildExperimentalSourceEsmStub);
+});
+
+test.serial("ui5 build experimental-source-esm delegates prerequisite build to Node on Bun", async (t) => {
+	const argv = getDefaultArgv();
+	argv._.push("experimental-source-esm");
+	argv.dest = "./dist-bun";
+	argv["include-all-dependencies"] = true;
+	argv["experimental-css-variables"] = true;
+	argv["output-style"] = "Flat";
+
+	const builder = sinon.stub().resolves();
+	const fakeGraph = {
+		getRoot: sinon.stub().returns({
+			getBuilderSettings: sinon.stub().returns(undefined)
+		}),
+		build: builder
+	};
+	const graphFromPackageDependenciesStub = sinon.stub().resolves(fakeGraph);
+	const buildExperimentalSourceEsmStub = sinon.stub().resolves();
+	const spawnStub = sinon.stub().callsFake(() => {
+		const child = new EventEmitter();
+		setImmediate(() => child.emit("close", 0, null));
+		return child;
+	});
+
+	const build = await esmock.p("../../../../lib/cli/commands/build.js", {
+		"@ui5/project/graph": {
+			graphFromPackageDependencies: graphFromPackageDependenciesStub,
+			graphFromStaticFile: sinon.stub().resolves(fakeGraph)
+		},
+		"../../../../lib/framework/experimentalSourceEsm.js": {
+			default: buildExperimentalSourceEsmStub
+		},
+		"@ui5/project/graph/ProjectGraph": sinon.stub().resolves(fakeGraph),
+		"node:child_process": {
+			spawn: spawnStub
+		},
+		"node:process": {
+			default: {
+				cwd: () => process.cwd(),
+				env: {
+					NODE_RUNTIME_BINARY: "/custom/node"
+				},
+				versions: {
+					bun: "1.0.0"
+				}
+			}
+		}
+	});
+
+	try {
+		await build.handler(argv);
+
+		sinon.assert.notCalled(builder);
+		t.is(spawnStub.callCount, 1, "Prerequisite build delegated to a Node subprocess");
+		const [runtimeBinary, runtimeArgs, options] = spawnStub.getCall(0).args;
+		t.is(runtimeBinary, "/custom/node");
+		t.true(runtimeArgs[0].endsWith(path.join("bin", "ui5.cjs")), "Delegation uses the UI5 CLI entrypoint");
+		t.deepEqual(runtimeArgs.slice(1), [
+			"build",
+			"--cache-mode", "Default",
+			"--all",
+			"--dest", "./dist-bun",
+			"--experimental-css-variables",
+			"--output-style", "Flat"
+		], "Node subprocess receives the standard prerequisite build arguments");
+		t.is(options.cwd, process.cwd());
+		t.is(options.env.UI5_CLI_NO_LOCAL, "1");
+		sinon.assert.callOrder(spawnStub, buildExperimentalSourceEsmStub);
+	} finally {
+		esmock.purge(build);
+	}
 });
 
 test.serial("ui5 build jsdoc", async (t) => {
